@@ -34,6 +34,7 @@ jobs:
           falcon_region: ${{ vars.FALCON_REGION }}
           scan_type: image
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          fail_on: critical
           report_formats: json
           output_path: ./fcs-results.json
         env:
