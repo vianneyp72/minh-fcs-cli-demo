@@ -34,71 +34,23 @@ jobs:
           falcon_region: ${{ vars.FALCON_REGION }}
           scan_type: image
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          fail_on: high
-          policy_rule: fail
+          minimum_severity: high
+          vuln_fixable_only: true
           report_formats: json
           output_path: ./fcs-results.json
         env:
           FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
 
-      - name: Locate report
-        if: always()
+      - name: Gate - block push on scan findings
+        if: steps.fcs-scan.outputs.exit-code != 0
         run: |
-          if [ -f "./fcs-results.json" ]; then
-            echo "report_found=true" >> $GITHUB_ENV
-          else
-            echo "report_found=false" >> $GITHUB_ENV
-            echo "::warning::No report file found"
-          fi
-
-      - name: Debug - inspect JSON structure
-        if: env.report_found == 'true'
-        run: |
-          echo "=== Vulnerabilities array - first entry keys ==="
-          jq '.Vulnerabilities[0] | keys' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Vulnerabilities[0] sample (truncated) ==="
-          jq '.Vulnerabilities[0] | del(.description, .references)' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Packages array - first entry keys ==="
-          jq '.Packages[0] | keys' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Packages[0] sample (truncated) ==="
-          jq '.Packages[0] | del(.Vulnerabilities)' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Packages[0].Vulnerabilities[0] ==="
-          jq '.Packages[0].Vulnerabilities[0]' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== ApplicationPackages[0] keys ==="
-          jq '.ApplicationPackages[0] | keys' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== ApplicationPackages[0] sample (truncated) ==="
-          jq '.ApplicationPackages[0] | del(.Vulnerabilities)' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== ApplicationPackages[0].Vulnerabilities[0] ==="
-          jq '.ApplicationPackages[0].Vulnerabilities[0]' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Find werkzeug in ApplicationPackages ==="
-          jq '[.ApplicationPackages[] | select(.package_name_version? | test("werkzeug"; "i"))] | .[0]' ./fcs-results.json 2>/dev/null || true
-          jq '[.ApplicationPackages[] | select(.PackageSource? | test("werkzeug"; "i"))] | .[0] | keys' ./fcs-results.json 2>/dev/null || true
-
-      - name: Gate - fail on fixable high or critical vulnerabilities
-        if: env.report_found == 'true'
-        run: |
-          echo "=== Gate check (placeholder - fixing after debug) ==="
-          echo "Deliberately failing to inspect debug output"
+          echo "::error::FCS scan found fixable HIGH/CRITICAL vulnerabilities. Blocking push."
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "**BLOCKED:** Image has fixable HIGH/CRITICAL vulnerabilities." >> $GITHUB_STEP_SUMMARY
           exit 1
 
       - name: Log in to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.fcs-scan.outputs.exit-code == 0
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -106,7 +58,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.fcs-scan.outputs.exit-code == 0
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
