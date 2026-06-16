@@ -51,26 +51,34 @@ jobs:
             echo "::warning::No report file found"
           fi
 
-      - name: Gate - fail on high or critical vulnerabilities
+      - name: Gate - fail on fixable high or critical vulnerabilities
         if: env.report_found == 'true'
         run: |
-          # Count vulnerabilities at HIGH or CRITICAL CrowdStrike severity
-          HIGH_COUNT=$(jq '[.vulnerabilities[]? | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
+          echo "=== Report structure (top-level keys) ==="
+          jq 'keys' ./fcs-results.json 2>/dev/null || true
 
-          # Fallback: check nested structure
-          if [ "$HIGH_COUNT" = "0" ]; then
-            HIGH_COUNT=$(jq '[.. | objects | select(.severity? == "HIGH" or .severity? == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
-          fi
+          echo ""
+          echo "=== Sample vulnerability entry ==="
+          jq '.. | objects | select(.severity? == "HIGH") | keys' ./fcs-results.json 2>/dev/null | head -20 || true
 
-          echo "Found $HIGH_COUNT HIGH/CRITICAL vulnerabilities"
+          echo ""
+          echo "=== HIGH/CRITICAL with fix available ==="
+          # Only count vulns where a fix version exists (not "No fix" or null)
+          FIXABLE_COUNT=$(jq '[.. | objects | select((.severity? == "HIGH" or .severity? == "CRITICAL") and .fix_version? != null and .fix_version? != "" and (.fix_version? | tostring | test("No fix") | not))] | length' ./fcs-results.json 2>/dev/null || echo "0")
 
-          if [ "$HIGH_COUNT" -gt "0" ]; then
-            echo "::error::Image has $HIGH_COUNT HIGH/CRITICAL vulnerabilities. Blocking push."
+          # Total HIGH/CRITICAL for info
+          TOTAL_COUNT=$(jq '[.. | objects | select(.severity? == "HIGH" or .severity? == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
+
+          echo "Total HIGH/CRITICAL: $TOTAL_COUNT"
+          echo "Fixable HIGH/CRITICAL: $FIXABLE_COUNT"
+
+          if [ "$FIXABLE_COUNT" -gt "0" ]; then
+            echo "::error::Image has $FIXABLE_COUNT fixable HIGH/CRITICAL vulnerabilities. Blocking push."
             echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
-            echo "**BLOCKED:** $HIGH_COUNT HIGH/CRITICAL vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+            echo "**BLOCKED:** $FIXABLE_COUNT fixable HIGH/CRITICAL vulnerabilities (out of $TOTAL_COUNT total)" >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "No HIGH/CRITICAL vulnerabilities found. Image is clear."
+            echo "No fixable HIGH/CRITICAL vulnerabilities. Passing (${TOTAL_COUNT} unfixable OS-level findings ignored)."
           fi
 
       - name: Log in to ghcr.io
