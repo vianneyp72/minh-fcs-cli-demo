@@ -1,0 +1,12 @@
+from flask import Flask
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def hello():
+    return "<h1>FCS Scan Demo</h1><p>This image passed CrowdStrike image assessment.</p>"
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
