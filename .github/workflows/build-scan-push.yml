@@ -34,24 +34,21 @@ jobs:
           falcon_region: ${{ vars.FALCON_REGION }}
           scan_type: image
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          report_formats: sarif
-          output_path: ./fcs-results
+          report_formats: json
+          output_path: ./fcs-results.json
         env:
           FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
 
-      - name: Locate SARIF report
+      - name: Locate report
         if: always()
         run: |
-          echo "Looking for SARIF files..."
-          find . -name "*.sarif" -o -name "*fcs-results*" 2>/dev/null | head -20
-          # The action writes JSON then converts; find whichever exists
+          echo "Looking for report files..."
+          find . -name "fcs-results*" 2>/dev/null
           if [ -f "./fcs-results.sarif" ]; then
             echo "sarif_file=./fcs-results.sarif" >> $GITHUB_ENV
-          elif [ -f "./fcs-results/results.sarif" ]; then
-            echo "sarif_file=./fcs-results/results.sarif" >> $GITHUB_ENV
           elif [ -f "./fcs-results.json" ]; then
             echo "sarif_file=" >> $GITHUB_ENV
-            echo "::warning::Only JSON report found, no SARIF generated"
+            echo "::notice::JSON report generated at ./fcs-results.json (SARIF not available for image scans)"
           else
             echo "sarif_file=" >> $GITHUB_ENV
             echo "::warning::No report files found"
