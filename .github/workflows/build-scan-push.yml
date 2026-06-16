@@ -51,35 +51,51 @@ jobs:
             echo "::warning::No report file found"
           fi
 
+      - name: Debug - inspect JSON structure
+        if: env.report_found == 'true'
+        run: |
+          echo "=== Vulnerabilities array - first entry keys ==="
+          jq '.Vulnerabilities[0] | keys' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== Vulnerabilities[0] sample (truncated) ==="
+          jq '.Vulnerabilities[0] | del(.description, .references)' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== Packages array - first entry keys ==="
+          jq '.Packages[0] | keys' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== Packages[0] sample (truncated) ==="
+          jq '.Packages[0] | del(.Vulnerabilities)' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== Packages[0].Vulnerabilities[0] ==="
+          jq '.Packages[0].Vulnerabilities[0]' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== ApplicationPackages[0] keys ==="
+          jq '.ApplicationPackages[0] | keys' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== ApplicationPackages[0] sample (truncated) ==="
+          jq '.ApplicationPackages[0] | del(.Vulnerabilities)' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== ApplicationPackages[0].Vulnerabilities[0] ==="
+          jq '.ApplicationPackages[0].Vulnerabilities[0]' ./fcs-results.json 2>/dev/null || true
+
+          echo ""
+          echo "=== Find werkzeug in ApplicationPackages ==="
+          jq '[.ApplicationPackages[] | select(.package_name_version? | test("werkzeug"; "i"))] | .[0]' ./fcs-results.json 2>/dev/null || true
+          jq '[.ApplicationPackages[] | select(.PackageSource? | test("werkzeug"; "i"))] | .[0] | keys' ./fcs-results.json 2>/dev/null || true
+
       - name: Gate - fail on fixable high or critical vulnerabilities
         if: env.report_found == 'true'
         run: |
-          echo "=== Report structure (top-level keys) ==="
-          jq 'keys' ./fcs-results.json 2>/dev/null || true
-
-          echo ""
-          echo "=== Sample vulnerability entry ==="
-          jq '.. | objects | select(.severity? == "HIGH") | keys' ./fcs-results.json 2>/dev/null | head -20 || true
-
-          echo ""
-          echo "=== HIGH/CRITICAL with fix available ==="
-          # Only count vulns where a fix version exists (not "No fix" or null)
-          FIXABLE_COUNT=$(jq '[.. | objects | select((.severity? == "HIGH" or .severity? == "CRITICAL") and .fix_version? != null and .fix_version? != "" and (.fix_version? | tostring | test("No fix") | not))] | length' ./fcs-results.json 2>/dev/null || echo "0")
-
-          # Total HIGH/CRITICAL for info
-          TOTAL_COUNT=$(jq '[.. | objects | select(.severity? == "HIGH" or .severity? == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
-
-          echo "Total HIGH/CRITICAL: $TOTAL_COUNT"
-          echo "Fixable HIGH/CRITICAL: $FIXABLE_COUNT"
-
-          if [ "$FIXABLE_COUNT" -gt "0" ]; then
-            echo "::error::Image has $FIXABLE_COUNT fixable HIGH/CRITICAL vulnerabilities. Blocking push."
-            echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
-            echo "**BLOCKED:** $FIXABLE_COUNT fixable HIGH/CRITICAL vulnerabilities (out of $TOTAL_COUNT total)" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          else
-            echo "No fixable HIGH/CRITICAL vulnerabilities. Passing (${TOTAL_COUNT} unfixable OS-level findings ignored)."
-          fi
+          echo "=== Gate check (placeholder - fixing after debug) ==="
+          echo "Deliberately failing to inspect debug output"
+          exit 1
 
       - name: Log in to ghcr.io
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
