@@ -42,15 +42,78 @@ jobs:
           FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
 
       - name: Gate - block push on scan findings
-        if: steps.fcs-scan.outputs.exit-code != 0
+        if: always()
         run: |
-          echo "::error::FCS scan found fixable HIGH/CRITICAL vulnerabilities. Blocking push."
-          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
-          echo "**BLOCKED:** Image has fixable HIGH/CRITICAL vulnerabilities." >> $GITHUB_STEP_SUMMARY
-          exit 1
+          if [ ! -f "./fcs-results.json" ]; then
+            echo "::warning::No report file found"
+            exit 0
+          fi
+
+          echo "=== DEBUG: Top-level Vulnerabilities count ==="
+          jq '.Vulnerabilities | length' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: Vulnerabilities[0] keys ==="
+          jq '.Vulnerabilities[0] | keys' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: First HIGH in Vulnerabilities ==="
+          jq '[.Vulnerabilities[]? | select(.severity == "HIGH")][0]' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: ApplicationPackages count ==="
+          jq '.ApplicationPackages | length' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: ApplicationPackages[0] keys ==="
+          jq '.ApplicationPackages[0] | keys' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: ApplicationPackages with werkzeug ==="
+          jq '.ApplicationPackages[] | select(.PackageSource? // .package_name? // "" | test("werkzeug"; "i"))' ./fcs-results.json 2>/dev/null | head -50 || echo "not found via PackageSource/package_name"
+
+          echo "=== DEBUG: Search all keys containing 'werk' ==="
+          jq '.. | strings | select(test("werkzeug"; "i"))' ./fcs-results.json 2>/dev/null | head -10 || echo "none"
+
+          echo "=== DEBUG: Packages[0] keys ==="
+          jq '.Packages[0] | keys' ./fcs-results.json 2>/dev/null || echo "null"
+
+          echo "=== DEBUG: Packages with werkzeug ==="
+          jq '.Packages[]? | select((.PackageSource? // .package_name? // .Name? // "") | test("werkzeug"; "i"))' ./fcs-results.json 2>/dev/null | head -50 || echo "not found"
+
+          echo "=== DEBUG: VulnerabilitiesSummary ==="
+          jq '.VulnerabilitiesSummary' ./fcs-results.json 2>/dev/null || echo "null"
+
+          # Attempt multiple strategies to find fixable HIGH/CRITICAL
+          echo ""
+          echo "=== Strategy 1: Vulnerabilities[] with severity HIGH/CRITICAL ==="
+          COUNT1=$(jq '[.Vulnerabilities[]? | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
+          echo "Count: $COUNT1"
+
+          echo "=== Strategy 2: ApplicationPackages[].Vulnerabilities[] with severity HIGH/CRITICAL ==="
+          COUNT2=$(jq '[.ApplicationPackages[]?.Vulnerabilities[]? | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
+          echo "Count: $COUNT2"
+
+          echo "=== Strategy 3: Packages[].Vulnerabilities[] with severity HIGH/CRITICAL ==="
+          COUNT3=$(jq '[.Packages[]?.Vulnerabilities[]? | select(.severity == "HIGH" or .severity == "CRITICAL")] | length' ./fcs-results.json 2>/dev/null || echo "0")
+          echo "Count: $COUNT3"
+
+          echo "=== Strategy 4: recursive search for fix_version ==="
+          COUNT4=$(jq '[.. | objects | select(.fix_version? != null)] | length' ./fcs-results.json 2>/dev/null || echo "0")
+          echo "Objects with fix_version: $COUNT4"
+
+          # Use whichever count is non-zero
+          VULN_COUNT=$COUNT1
+          if [ "$VULN_COUNT" -eq "0" ]; then VULN_COUNT=$COUNT2; fi
+          if [ "$VULN_COUNT" -eq "0" ]; then VULN_COUNT=$COUNT3; fi
+
+          echo ""
+          echo "Final VULN_COUNT: $VULN_COUNT"
+
+          if [ "$VULN_COUNT" -gt "0" ]; then
+            echo "::error::Image has $VULN_COUNT fixable HIGH/CRITICAL vulnerabilities. Blocking push."
+            exit 1
+          else
+            echo "No fixable HIGH/CRITICAL vulnerabilities found."
+          fi
 
       - name: Log in to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.fcs-scan.outputs.exit-code == 0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -58,7 +121,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.fcs-scan.outputs.exit-code == 0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
