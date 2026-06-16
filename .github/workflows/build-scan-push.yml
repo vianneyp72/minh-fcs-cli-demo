@@ -35,6 +35,7 @@ jobs:
           scan_type: image
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           fail_on: high
+          policy_rule: fail
           report_formats: json
           output_path: ./fcs-results.json
         env:
