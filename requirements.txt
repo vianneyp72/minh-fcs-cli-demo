@@ -1,9 +1,9 @@
 #Patched Versions
-# flask==3.1.1
-# werkzeug==3.1.3
-# jinja2==3.1.6
+flask==3.1.1
+werkzeug==3.1.3
+jinja2==3.1.6
 
 #Vulnerable Versions (uncomment to test fail case)
-flask==2.3.2
-werkzeug==2.3.3
-jinja2==3.1.2
+# flask==2.3.2
+# werkzeug==2.3.3
+# jinja2==3.1.2
