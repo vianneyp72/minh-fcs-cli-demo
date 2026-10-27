@@ -1,4 +1,4 @@
-name: Build, Scan & Push
+name: Build & Scan
 
 on:
   push:
@@ -11,12 +11,10 @@ env:
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  build-scan-push:
+  build-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      security-events: write
 
     steps:
       - name: Checkout code
@@ -34,49 +32,8 @@ jobs:
           falcon_region: ${{ vars.FALCON_REGION }}
           scan_type: image
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          minimum_severity: high
-          vuln_fixable_only: true
+          upload_results: true
           report_formats: json
           output_path: ./fcs-results.json
         env:
           FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
-
-      - name: Gate - block push on scan findings
-        if: always()
-        run: |
-          if [ ! -f "./fcs-results.json" ]; then
-            echo "::warning::No report file found"
-            exit 0
-          fi
-
-          # The scan uses vuln_fixable_only + minimum_severity: high, so
-          # VulnerabilitiesSummary only counts fixable HIGH+ vulns
-          HIGH=$(jq '.VulnerabilitiesSummary.severities.high // 0' ./fcs-results.json)
-          CRITICAL=$(jq '.VulnerabilitiesSummary.severities.critical // 0' ./fcs-results.json)
-          TOTAL=$((HIGH + CRITICAL))
-
-          echo "Fixable vulnerabilities — HIGH: $HIGH, CRITICAL: $CRITICAL"
-
-          if [ "$TOTAL" -gt "0" ]; then
-            echo "::error::Image has $TOTAL fixable HIGH/CRITICAL vulnerabilities. Blocking push."
-            echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
-            echo "**BLOCKED:** $TOTAL fixable HIGH/CRITICAL vulnerabilities (HIGH: $HIGH, CRITICAL: $CRITICAL)" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          else
-            echo "No fixable HIGH/CRITICAL vulnerabilities. Image is clean."
-          fi
-
-      - name: Log in to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push image to ghcr.io
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          docker push ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
-          docker push ${{ env.IMAGE_NAME }}:latest
